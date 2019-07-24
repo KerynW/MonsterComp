@@ -10,28 +10,29 @@ built-in parser do most of the work.
 This script currently works for:
     
     D20PFSRD - http://www.d20pfsrd.com/
+    AON - http://archivesofnethys.com    (not as thoroughly tested)
 
 **********************************************************************************
 Before using this script:
 
     This script is not intended to work for NPCs with class levels.
 
-    This script is SUPER finicky about data format.  I'm working to relieve that as I find monsters that it can't work with.
-
 To use this script:
 
     1   Use any token uploaded to your personal token library (will usually not work with things not uploaded i.e. marketplace tokens )
     2   Name this token MonsterComp
-    3   Copy the statblock "MonsterComp"'s GMnotes section AS PLAIN TEXT (cannot stress this part enough)
-    3.5 Go through and verify that there is one hard return after every section of data (multi-line descriptions are exempt from this, 
-        although they do need to be separate from OTHER types of data by a genuine space)
+    3   Copy the statblock and paste it into "MonsterComp"'s GMnotes section AS PLAIN TEXT (cannot stress this part enough)
     4   Select the Monstercomp token and type !MonsterComp into the chat entry box
     5   Open the character sheet and hit the Parse button.
     6   You should have a functional character sheet now!
     
     If you got malformed results for something without class level: 
-        First suspect that the text in GMNotes is not properly text-only. 
-        THEN suspect you got it in a format/order that MonsterComp isn't familiar with
+        First suspect you got the data from somwhere other than d20PFSRD or AoN 
+        Then check if the data is for something with class levels, which MonsterComp can't handle
+        Then suspect the data isn't set up correctly
+            for example, every so often the creature name and CR are on separate lines in d20PFSRD.
+        Then suspect there is something in the data that the sdcript can't handle.  Open a ticket with the URL of the monster.
+    
         
         
 */
@@ -108,9 +109,6 @@ function cleanUpString(strSpecials) {
     strSpecials = stripStringRegEx(strSpecials, "</h", ">");
 
     strSpecials = stripString(strSpecials, "</a>", "");
-    
-    //strSpecials = stripString(strSpecials, "<p>", "");
-    //strSpecials = stripString(strSpecials, "</p>", "");
 
     strSpecials = stripStringRegEx(strSpecials, "<t", ">");
     strSpecials = stripStringRegEx(strSpecials, "</t", ">");
@@ -137,6 +135,7 @@ function removeLinks(str) {
 
 //looks for an occurrence of str in the array strArray, if found returns that element
 // on doConcat, strips a trailing "and" and concatenates with the next line.
+// in practice, this returns the LAST occurrence of str in strArray, not the first.
 function findString(strArray, str, doConcat) {
     var retr,
     r = new RegExp(str.replace(RegExpEscapeSpecial, "\\$1"));
@@ -187,18 +186,14 @@ on('chat:message', function(msg) {
         gmNotes = stripString(gmNotes, "%3C/h3%3E", "%3Cbr");
         gmNotes = stripString(gmNotes, "%3C/h4%3E", "%3Cbr");
         
-        // this next part is meant to insert a break where there needs to be one
+        // this next part inserts a break where there needs to be one
+        // it makes the script less finicky about inputs
         var paramissingbr = "%3C/p%3E%3Cp%3E" // "</p><p>"
-        var parawithbr = "%3C/p%3E%3Cp%3E%3Cbr%3E%3C/p%3E%3Cp%3E" // </p><br><p>
+        var parawithbr = "%3C/p%3E%3Cp%3E%3Cbr%3E%3C/p%3E%3Cp%3E" // "</p><br><p>""
         gmNotes = stripString(gmNotes, paramissingbr, parawithbr); 
-        //  It does what I want, but I think something about this crashes somethingg?
-        
-        //log(gmNotes);
 
         //break the string down by line returns
         var data = gmNotes.split("%3Cbr");
-
-        //log(data);
 
         //clean any characters excepting text and hyperlinks
         for (var i = 0; i < data.length; i++) {
@@ -214,8 +209,6 @@ on('chat:message', function(msg) {
                 data[i] = data[i].trim();
             }
         }
-
-        //log(data);
 
         var nameLine = findString(data, "CR ", true);
         nameLine = nameLine.trim();
@@ -267,10 +260,16 @@ on('chat:message', function(msg) {
         var sizesWithSpace = "Fine ,Diminutive ,Tiny ,Small ,Medium ,Large ,Huge ,Gargantuan ,Colossal ";
         var sizesArray = sizesWithSpace.split(",");
 
-        for (var i = 0; i < 9; i++) {
-            if (findString(data, sizesArray[i], true) !== undefined) {
-                var sizeLine = findString(data, sizesArray[i], true);
-                break;
+        var sizeLine = "";
+        // start searching data just below name/cr line because the name can also contain size words
+        // take the first occurrence of a size word as the actual size of the creature
+        for (var i = 2; i < data.length; i++) {
+            for (var j = 0; j < 9; j++) {
+                if (data[i].includes(sizesArray[j], 0)) {
+                    sizeLine = data[i];
+                    j = 9;               // satisfy both for-loop end conditions 
+                    i = data.length;
+                }
             }
         }
 
@@ -366,6 +365,7 @@ on('chat:message', function(msg) {
 
         if (drLine !== undefined) {
             var damageResist = drLine.split(", ");
+            damageResist[0] = damageResist[0].replace("DR ", "");
             AddAttribute("dr_compendium", damageResist[0], charID);
         }
  
@@ -486,12 +486,12 @@ on('chat:message', function(msg) {
 //******************************************************************************
         // spellike-ability-text, npc-spells-known-text
         var spellikeLine = findString(data, "Spell-Like Abilities ", true);
-        var spellikeNum = data.indexOf(spellikeLine);
         var spellsknownLine = findString(data, "Spells Known ", true);
-        var spellsknownNum = data.indexOf(spellsknownLine);
 
         if (spellikeLine !== undefined) {
+            var spellikeNum = data.indexOf(spellikeLine);
             if (spellsknownLine !== undefined) {
+                var spellsknownNum = data.indexOf(spellsknownLine);
                 var endNumber = spellsknownNum;
             }
             else {
@@ -517,11 +517,7 @@ on('chat:message', function(msg) {
 //******************************************************************************
         // str_compendium, dex_compendium,con_compendium,int_compendium,wis_compendium,cha_compendium
         
-        //find the element in the data array that the title "Statistics" occurs in
-        var statsElementNumber = data.indexOf("STATISTICS");
-
-        //the actual attribute scores are in the element after the heading
-        var stats = data[statsElementNumber + 1];
+        var stats = findString(data, "Str ", true);
         stats = stats.split(",");
 
         //assign attribute scores by removing non numerical characters from the stats array elements
@@ -642,21 +638,21 @@ on('chat:message', function(msg) {
         var contentLine = "";
         
         for (i = startNum+1; i < endNum; i++) {
-            contentLine = contentLine + data[i] + String.fromCharCode(13);
+            if (data[i] !== undefined){
+                contentLine = contentLine + data[i] + String.fromCharCode(13);
+            }
         }
 
         // the description is added to the character sheet bio
         character.set('bio',contentLine);
 
         // special abilities are now added to the bottom of description
-        // double space after each to try to fix some oddness I found with 
-        // one creature.
-        
+
         var startNum = data.indexOf("SPECIAL ABILITIES");
         var endNum = data.indexOf("ECOLOGY");
         
         for (i = startNum+1; i < endNum; i++) {
-            contentLine = contentLine + data[i] + String.fromCharCode(13) + String.fromCharCode(13);
+            contentLine = contentLine + data[i] + String.fromCharCode(13);
         } 
         
         AddAttribute("content_compendium", contentLine, charID);
